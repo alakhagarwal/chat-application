@@ -22,7 +22,7 @@ public class RoomController {
         return ResponseEntity.ok(roomService.createRoom(RoomId));
     }
 
-    @GetMapping("/join")
+    @GetMapping("/join/{roomId}")
     public ResponseEntity<?> joinRoom(@PathVariable String roomId) {
         return ResponseEntity.ok(roomService.joinRoom(roomId));
     }

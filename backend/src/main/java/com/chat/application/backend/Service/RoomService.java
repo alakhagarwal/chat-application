@@ -43,4 +43,12 @@ public class RoomService {
         }
         return room.getMessages();
     }
+
+    public Room findByRoomId(String roomId) {
+        Room room = roomRepository.findByRoomId(roomId);
+        if (room == null) {
+            throw new RoomNotFoundException("Room with ID " + roomId + " does not exist.");
+        }
+        return room;
+    }
 }

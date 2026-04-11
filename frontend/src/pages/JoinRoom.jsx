@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, useMotionValue, useTransform } from 'motion/react'
 import toast from 'react-hot-toast'
+import RoomService from '../services/RoomService'
 
 /* ── Floating particle positions (fixed so they don't re-randomise on re-render) ── */
 const PARTICLES = [
@@ -32,6 +33,7 @@ export default function JoinRoom() {
   const [name,        setName]        = useState('')
   const [roomId,      setRoomId]      = useState('')
   const [isCreating,  setIsCreating]  = useState(false)
+  const [isJoining,   setIsJoining]   = useState(false)
   const [nameFocused, setNameFocused] = useState(false)
   const [roomFocused, setRoomFocused] = useState(false)
   const navigate = useNavigate()
@@ -49,19 +51,65 @@ export default function JoinRoom() {
   }
   const handleMouseLeave = () => { mouseX.set(0); mouseY.set(0) }
 
-  const handleJoinRoom = () => {
-    if (!name.trim())   return toast.error('Please enter your name')
-    if (!roomId.trim()) return toast.error('Please enter a room ID')
-    toast.success(`Joining room ${roomId}…`)
-    setTimeout(() => navigate(`/chat/${roomId.trim()}`, { state: { username: name.trim() } }), 400)
+  const validateInputs = (checkRoomId = true) => {
+    if (!name.trim()) {
+      toast.error('Please enter your name')
+      return false
+    }
+    if (checkRoomId && !roomId.trim()) {
+      toast.error('Please enter a room ID')
+      return false
+    }
+    return true
   }
 
-  const handleCreateRoom = () => {
-    if (!name.trim()) return toast.error('Please enter your name')
+  const handleJoinRoom = async () => {
+    if (!validateInputs(true)) return
+    setIsJoining(true)
+    const targetRoomId = roomId.trim()
+
+    try {
+      // Validate with backend that room exists
+      await RoomService.joinRoom(targetRoomId)
+      
+      toast.success(`Joined room ${targetRoomId}`)
+      setTimeout(() => navigate(`/chat/${targetRoomId}`, { state: { username: name.trim() } }), 400)
+    } catch (error) {
+      console.error("Failed to join room:", error)
+      const backendError = error.response?.data?.message || (typeof error.response?.data === 'string' ? error.response.data : null)
+      toast.error(backendError || `Room ${targetRoomId} not found`)
+      setIsJoining(false)
+    }
+  }
+
+  const handleCreateRoom = async () => {
+    if (!validateInputs(true)) return // Require the user to type an ID
     setIsCreating(true)
-    const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase()
-    toast.success(`Room ${newRoomId} created!`)
-    setTimeout(() => navigate(`/chat/${newRoomId}`, { state: { username: name.trim() } }), 600)
+    const newRoomId = roomId.trim()
+    
+    try {
+      // Call Spring Boot backend to construct the room with the USER-provided ID
+      const createdRoom = await RoomService.createRoom(newRoomId)
+      
+      // Backend returns internal ID + roomId. Always use tracking roomId for the UI URL.
+      const finalRoomId = createdRoom?.roomId || newRoomId
+      
+      toast.success(`Room ${finalRoomId} created!`)
+      setTimeout(() => navigate(`/chat/${finalRoomId}`, { state: { username: name.trim() } }), 600)
+    } catch (error) {
+      console.error("Failed to create room:", error)
+      
+      const backendError = error.response?.data?.message 
+                        || (typeof error.response?.data === 'string' ? error.response.data : null);
+
+      if (backendError) {
+        toast.error(backendError) // Will show "Room with ID ... already exists"
+      } else {
+        toast.error('Failed to create room. Is your backend running?')
+      }
+      
+      setIsCreating(false)
+    }
   }
 
   return (
@@ -249,7 +297,8 @@ export default function JoinRoom() {
                 whileHover={{ scale: 1.03, y: -2, boxShadow: '0 8px 30px rgba(99,102,241,0.45)' }}
                 whileTap={{ scale: 0.96 }}
                 onClick={handleJoinRoom}
-                className="relative flex-1 overflow-hidden py-3.5 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition-colors duration-300 cursor-pointer text-sm"
+                disabled={isJoining || isCreating}
+                className="relative flex-1 overflow-hidden py-3.5 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition-colors duration-300 cursor-pointer text-sm disabled:opacity-60"
               >
                 {/* Hover shimmer */}
                 <motion.span
@@ -263,10 +312,20 @@ export default function JoinRoom() {
                   transition={{ duration: 0.5 }}
                 />
                 <span className="relative flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                  </svg>
-                  Join Room
+                  {isJoining ? (
+                    <motion.svg
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                      className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </motion.svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                    </svg>
+                  )}
+                  {isJoining ? 'Joining…' : 'Join Room'}
                 </span>
               </motion.button>
 
@@ -275,7 +334,7 @@ export default function JoinRoom() {
                 whileHover={{ scale: 1.03, y: -2, boxShadow: '0 8px 30px rgba(16,185,129,0.4)' }}
                 whileTap={{ scale: 0.96 }}
                 onClick={handleCreateRoom}
-                disabled={isCreating}
+                disabled={isCreating || isJoining}
                 className="relative flex-1 overflow-hidden py-3.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/30 transition-colors duration-300 cursor-pointer text-sm disabled:opacity-60"
               >
                 <motion.span

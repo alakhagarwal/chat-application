@@ -7,12 +7,15 @@ export const ChatProvider = ({ children }) => {
 
     const [roomId, setRoomId] = useState("");
     const [currentUser, setCurrentUser] = useState(null);
+    const [connected, setConnected] = useState(false)
 
     const value = {
         roomId,
         setRoomId,
         currentUser,
-        setCurrentUser
+        setCurrentUser,
+        connected,
+        setConnected
     }
 
     return (

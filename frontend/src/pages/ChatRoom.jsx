@@ -1,7 +1,13 @@
- import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import {useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import toast from 'react-hot-toast'
+import useChatContext from '../context/ChatContext'
+import { baseURL } from '../config/api'
+import SockJS from 'sockjs-client';
+import Stomp from 'stompjs';
+import RoomService from '../services/RoomService'
+
 
 /* ─────────────────────────────────────────────
    Utilities
@@ -19,123 +25,103 @@ function getInitial(name) {
   return name.charAt(0).toUpperCase()
 }
 
-function playNotificationSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const now = ctx.currentTime
-    const osc1 = ctx.createOscillator()
-    const gain1 = ctx.createGain()
-    osc1.connect(gain1); gain1.connect(ctx.destination)
-    osc1.frequency.setValueAtTime(587, now)
-    osc1.type = 'sine'
-    gain1.gain.setValueAtTime(0.12, now)
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25)
-    osc1.start(now); osc1.stop(now + 0.25)
-    const osc2 = ctx.createOscillator()
-    const gain2 = ctx.createGain()
-    osc2.connect(gain2); gain2.connect(ctx.destination)
-    osc2.frequency.setValueAtTime(880, now + 0.08)
-    osc2.type = 'sine'
-    gain2.gain.setValueAtTime(0.1, now + 0.08)
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35)
-    osc2.start(now + 0.08); osc2.stop(now + 0.35)
-  } catch { /* silent fallback */ }
-}
-
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-
-/* ─────────────────────────────────────────────
    Animation Variants
    ───────────────────────────────────────────── */
 
 /** Sidebar users stagger */
 const sidebarListVariants = {
-  hidden:  {},
+  hidden: {},
   visible: { transition: { staggerChildren: 0.07, delayChildren: 0.3 } },
 }
 const sidebarItemVariants = {
-  hidden:  { opacity: 0, x: -20, filter: 'blur(4px)' },
-  visible: { opacity: 1, x: 0,   filter: 'blur(0px)',
-    transition: { type: 'spring', stiffness: 260, damping: 22 } },
+  hidden: { opacity: 0, x: -20, filter: 'blur(4px)' },
+  visible: {
+    opacity: 1, x: 0, filter: 'blur(0px)',
+    transition: { type: 'spring', stiffness: 260, damping: 22 }
+  },
 }
 
 /** Own bubble — springs in from right */
 const ownBubbleVariants = {
-  hidden:  { opacity: 0, x: 30,  scale: 0.88 },
-  visible: { opacity: 1, x: 0,   scale: 1,
-    transition: { type: 'spring', stiffness: 320, damping: 26 } },
-  exit:    { opacity: 0, x: 20, scale: 0.9, transition: { duration: 0.15 } },
+  hidden: { opacity: 0, x: 30, scale: 0.88 },
+  visible: {
+    opacity: 1, x: 0, scale: 1,
+    transition: { type: 'spring', stiffness: 320, damping: 26 }
+  },
+  exit: { opacity: 0, x: 20, scale: 0.9, transition: { duration: 0.15 } },
 }
 
 /** Other bubble — springs in from left */
 const otherBubbleVariants = {
-  hidden:  { opacity: 0, x: -30, scale: 0.88 },
-  visible: { opacity: 1, x: 0,   scale: 1,
-    transition: { type: 'spring', stiffness: 320, damping: 26 } },
-  exit:    { opacity: 0, x: -20, scale: 0.9, transition: { duration: 0.15 } },
+  hidden: { opacity: 0, x: -30, scale: 0.88 },
+  visible: {
+    opacity: 1, x: 0, scale: 1,
+    transition: { type: 'spring', stiffness: 320, damping: 26 }
+  },
+  exit: { opacity: 0, x: -20, scale: 0.9, transition: { duration: 0.15 } },
 }
-
-/* ─────────────────────────────────────────────
-   Mock Data
-   ───────────────────────────────────────────── */
-const MOCK_MESSAGES_TEMPLATE = [
-  { sender: 'Alice Johnson', content: 'Hey everyone! Just joined the room 👋',            timestamp: '2026-04-10T10:00:00' },
-  { sender: 'Bob Smith',     content: 'Welcome Alice! We were just discussing the new project.', timestamp: '2026-04-10T10:01:30' },
-  { sender: '__SELF__',      content: 'Hey! Glad to be here. What did I miss?',            timestamp: '2026-04-10T10:02:00' },
-  { sender: 'Alice Johnson', content: "Not much! What's the latest update?",               timestamp: '2026-04-10T10:02:15' },
-  { sender: 'Charlie Dev',   content: "We've finalized the UI mockups. The dark theme looks incredible! 🔥", timestamp: '2026-04-10T10:03:00' },
-  { sender: '__SELF__',      content: 'The glassmorphism effects are super clean! Great work team 👏', timestamp: '2026-04-10T10:03:30' },
-  { sender: 'Bob Smith',     content: 'Thanks! Spent quite some time on the color palette.', timestamp: '2026-04-10T10:04:00' },
-  { sender: 'Alice Johnson', content: 'Can you share the design link?',                    timestamp: '2026-04-10T10:05:00' },
-  { sender: 'Charlie Dev',   content: "Sure, I'll drop it in the shared docs. Give me a sec.", timestamp: '2026-04-10T10:06:00' },
-  { sender: '__SELF__',      content: "Awesome! Let's also discuss the WebSocket implementation next 🛠️", timestamp: '2026-04-10T10:07:00' },
-  { sender: 'Bob Smith',     content: 'Agreed. I have some thoughts on the STOMP protocol setup.', timestamp: '2026-04-10T10:08:00' },
-]
-
-const MOCK_ONLINE_USERS = ['Alice Johnson', 'Bob Smith', 'Charlie Dev']
-
-const AUTO_RESPONSES = [
-  "That's a great point! 👍",
-  'I totally agree with you on that.',
-  'Interesting perspective! Let me think about it.',
-  'Ha! Good one 😄',
-  "Sure, let's discuss that further.",
-  "Nice! I was thinking the same thing.",
-  "Let's sync up on this later today.",
-  "Sounds good to me! 🚀",
-]
 
 /* ─────────────────────────────────────────────
    Component
    ───────────────────────────────────────────── */
 export default function ChatRoom() {
-  const { roomId }  = useParams()
-  const navigate    = useNavigate()
-  const location    = useLocation()
-  const username    = location.state?.username || 'You'
-
-  const initialMessages = MOCK_MESSAGES_TEMPLATE.map((msg) => ({
-    ...msg,
-    sender: msg.sender === '__SELF__' ? username : msg.sender,
-  }))
-
-  const [messages,    setMessages]    = useState(initialMessages)
-  const [newMessage,  setNewMessage]  = useState('')
-  const [showSidebar, setShowSidebar] = useState(false)
-  const [isTyping,    setIsTyping]    = useState(null)
-  const [inputFocused, setInputFocused] = useState(false)
-  const messagesEndRef = useRef(null)
-  const inputRef       = useRef(null)
-
-  const onlineUsers = [...MOCK_ONLINE_USERS, username]
+  // const { roomId }  = useParams()
+  const navigate = useNavigate()
+  const { roomId, currentUser, connected } = useChatContext()
+  const [stompClient, setStompClient] = useState(null);
 
   useEffect(() => {
-    if (!location.state?.username) {
-      toast('Using default name. Join via homepage for a custom name.', { icon: 'ℹ️' })
+    if (!connected) {
+      navigate('/')
     }
+  }, [connected, roomId, currentUser])
+
+  useEffect(() => {
+    // stomp client
+
+    const connectWebSocket = () => {
+      const sock = new SockJS(`${baseURL}/chat`);
+      const client = Stomp.over(sock);
+
+      client.connect({}, () => {
+        setStompClient(client);
+        toast.success('Connected');
+
+        client.subscribe(`/topic/room/${roomId}`, (message) => {
+          const receivedMessage = JSON.parse(message.body);
+          setMessages((prev) => [...prev, receivedMessage]);
+        });
+      });
+      
+    };
+
+    connectWebSocket();
+  }, [roomId])
+
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const messages = await RoomService.getMessages(roomId);
+        setMessages(messages);
+      } catch (error) {
+        toast.error('Error fetching messages:', error);
+      }
+    };
+    fetchMessages();
   }, [])
+
+
+  // Pull the username synced from the Join screen
+  const username = currentUser || 'You'
+
+  const [messages, setMessages] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [inputFocused, setInputFocused] = useState(false)
+  const messagesEndRef = useRef(null)
+  const inputRef = useRef(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -145,30 +131,17 @@ export default function ChatRoom() {
     inputRef.current?.focus()
   }, [])
 
-  const handleSendMessage = useCallback(() => {
-    if (!newMessage.trim()) return
-    setMessages((prev) => [...prev, {
-      sender:    username,
-      content:   newMessage.trim(),
-      timestamp: new Date().toISOString(),
-    }])
-    setNewMessage('')
-    inputRef.current?.focus()
-
-    const responder = MOCK_ONLINE_USERS[Math.floor(Math.random() * MOCK_ONLINE_USERS.length)]
-    const delay     = 1200 + Math.random() * 2000
-
-    setTimeout(() => setIsTyping(responder), 800)
-    setTimeout(() => {
-      setIsTyping(null)
-      setMessages((prev) => [...prev, {
-        sender:    responder,
-        content:   AUTO_RESPONSES[Math.floor(Math.random() * AUTO_RESPONSES.length)],
-        timestamp: new Date().toISOString(),
-      }])
-      playNotificationSound()
-    }, delay)
-  }, [newMessage, username])
+  const handleSendMessage = async () => {
+    if(stompClient && connected && newMessage.trim()){
+      const message = {
+        sender: currentUser,
+        content: newMessage,
+        roomId: roomId
+      }
+      stompClient.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify(message))
+      setNewMessage('')
+    }
+  }
 
   const handleLeaveRoom = () => {
     toast.success('Left the room')
@@ -183,7 +156,7 @@ export default function ChatRoom() {
       {/* ═══ Header ─ slides down on mount ═══ */}
       <motion.header
         initial={{ y: -64, opacity: 0 }}
-        animate={{ y: 0,   opacity: 1 }}
+        animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         style={{
           display: 'flex',
@@ -198,19 +171,6 @@ export default function ChatRoom() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Mobile hamburger */}
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setShowSidebar(!showSidebar)}
-            className="lg:hidden"
-            style={{ padding: 8, borderRadius: 8, background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
-          >
-            <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </motion.button>
-
           {/* Room badge */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
@@ -226,19 +186,6 @@ export default function ChatRoom() {
             <span style={{ color: '#a5b4fc', fontSize: 14, fontWeight: 600, letterSpacing: '0.025em' }}>
               {roomId}
             </span>
-          </motion.div>
-
-          {/* Online count */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b', fontSize: 12, fontWeight: 500 }}
-          >
-            <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            {onlineUsers.length} online
           </motion.div>
         </div>
 
@@ -277,94 +224,6 @@ export default function ChatRoom() {
       {/* ═══ Body ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
-        {/* Mobile overlay */}
-        <AnimatePresence>
-          {showSidebar && (
-            <motion.div
-              key="overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 20 }}
-              onClick={() => setShowSidebar(false)}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* ── Sidebar (slides in on mobile, always visible on lg) ── */}
-        <motion.aside
-          initial={{ x: -260, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
-          style={{
-            width: 256,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'rgba(10, 15, 30, 0.9)',
-            backdropFilter: 'blur(20px)',
-            borderRight: '1px solid rgba(255,255,255,0.05)',
-            padding: 20,
-            overflowY: 'auto',
-          }}
-          className="hidden lg:flex"
-        >
-          <motion.h3
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 20 }}
-          >
-            Online — {onlineUsers.length}
-          </motion.h3>
-
-          {/* Staggered user list */}
-          <motion.div
-            variants={sidebarListVariants}
-            initial="hidden"
-            animate="visible"
-            style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
-          >
-            {onlineUsers.map((user) => (
-              <motion.div
-                key={user}
-                variants={sidebarItemVariants}
-                whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.04)' }}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 12, cursor: 'default' }}
-              >
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <motion.div
-                    whileHover={{ scale: 1.12 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                    style={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 14, fontWeight: 700, background: getAvatarColor(user) }}
-                  >
-                    {getInitial(user)}
-                  </motion.div>
-                  <motion.div
-                    animate={{ scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }}
-                    transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-                    style={{ position: 'absolute', bottom: -2, right: -2, width: 12, height: 12, background: '#34d399', borderRadius: '50%', border: '2px solid #0a0f1e' }}
-                  />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: '#cbd5e1', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user === username ? `${user} (You)` : user}
-                  </div>
-                  <div style={{ color: 'rgba(16,185,129,0.6)', fontSize: 10, fontWeight: 500 }}>Active now</div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 11 }}>
-              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              End-to-end encrypted
-            </div>
-          </div>
-        </motion.aside>
 
         {/* ── Messages + Input Column ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -391,7 +250,7 @@ export default function ChatRoom() {
             {/* Message list */}
             <AnimatePresence initial={false}>
               {messages.map((msg, index) => {
-                const own      = isOwn(msg.sender)
+                const own = isOwn(msg.sender)
                 const variants = own ? ownBubbleVariants : otherBubbleVariants
                 return (
                   <motion.div
@@ -461,48 +320,13 @@ export default function ChatRoom() {
               })}
             </AnimatePresence>
 
-            {/* Typing indicator */}
-            <AnimatePresence>
-              {isTyping && (
-                <motion.div
-                  key="typing"
-                  initial={{ opacity: 0, y: 16, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0,  scale: 1 }}
-                  exit={{ opacity: 0,  y: 8,   scale: 0.95 }}
-                  transition={{ type: 'spring', stiffness: 320, damping: 24 }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10 }}
-                >
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12, fontWeight: 700, background: getAvatarColor(isTyping) }}>
-                    {getInitial(isTyping)}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '12px 16px', background: '#151d2e', borderRadius: 16, border: '1px solid rgba(255,255,255,0.05)' }}>
-                    {[0, 1, 2].map((i) => (
-                      <motion.span
-                        key={i}
-                        animate={{ y: [0, -6, 0], opacity: [0.5, 1, 0.5] }}
-                        transition={{ duration: 0.7, delay: i * 0.15, repeat: Infinity, ease: 'easeInOut' }}
-                        style={{ width: 7, height: 7, background: '#64748b', borderRadius: '50%', display: 'inline-block' }}
-                      />
-                    ))}
-                  </div>
-                  <motion.span
-                    animate={{ opacity: [0.4, 0.8, 0.4] }}
-                    transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-                    style={{ fontSize: 10, color: '#475569', fontStyle: 'italic' }}
-                  >
-                    {isTyping.split(' ')[0]} is typing...
-                  </motion.span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             <div ref={messagesEndRef} />
           </div>
 
           {/* ═══ Input Bar — slides up on mount ═══ */}
           <motion.div
             initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0,  opacity: 1 }}
+            animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
             style={{ padding: '16px 24px', background: 'rgba(10,15,30,0.75)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}
           >

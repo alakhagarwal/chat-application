@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { motion, useMotionValue, useTransform } from 'motion/react'
 import toast from 'react-hot-toast'
 import RoomService from '../services/RoomService'
+import useChatContext from '../context/ChatContext'
 
-/* ── Floating particle positions (fixed so they don't re-randomise on re-render) ── */
 const PARTICLES = [
   { x: '12%',  y: '18%', size: 3,   delay: 0    },
   { x: '87%',  y: '11%', size: 2,   delay: 0.6  },
@@ -18,7 +18,6 @@ const PARTICLES = [
   { x: '30%',  y: '35%', size: 1.5, delay: 0.75 },
 ]
 
-/* ── Animation variants ── */
 const containerVariants = {
   hidden:  {},
   visible: { transition: { staggerChildren: 0.1, delayChildren: 0.25 } },
@@ -30,15 +29,13 @@ const itemVariants = {
 }
 
 export default function JoinRoom() {
-  const [name,        setName]        = useState('')
-  const [roomId,      setRoomId]      = useState('')
+  const { currentUser, setCurrentUser, roomId, setRoomId, setConnected } = useChatContext()
   const [isCreating,  setIsCreating]  = useState(false)
   const [isJoining,   setIsJoining]   = useState(false)
   const [nameFocused, setNameFocused] = useState(false)
   const [roomFocused, setRoomFocused] = useState(false)
   const navigate = useNavigate()
 
-  /* Card 3-D tilt values */
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
   const rotateX = useTransform(mouseY, [-0.5, 0.5], [3, -3])
@@ -52,11 +49,11 @@ export default function JoinRoom() {
   const handleMouseLeave = () => { mouseX.set(0); mouseY.set(0) }
 
   const validateInputs = (checkRoomId = true) => {
-    if (!name.trim()) {
+    if (!currentUser || !currentUser.trim()) {
       toast.error('Please enter your name')
       return false
     }
-    if (checkRoomId && !roomId.trim()) {
+    if (checkRoomId && (!roomId || !roomId.trim())) {
       toast.error('Please enter a room ID')
       return false
     }
@@ -69,11 +66,11 @@ export default function JoinRoom() {
     const targetRoomId = roomId.trim()
 
     try {
-      // Validate with backend that room exists
       await RoomService.joinRoom(targetRoomId)
       
       toast.success(`Joined room ${targetRoomId}`)
-      setTimeout(() => navigate(`/chat/${targetRoomId}`, { state: { username: name.trim() } }), 400)
+      setConnected(true);
+      setTimeout(() => navigate(`/chat/${targetRoomId}`), 400)
     } catch (error) {
       console.error("Failed to join room:", error)
       const backendError = error.response?.data?.message || (typeof error.response?.data === 'string' ? error.response.data : null)
@@ -88,14 +85,14 @@ export default function JoinRoom() {
     const newRoomId = roomId.trim()
     
     try {
-      // Call Spring Boot backend to construct the room with the USER-provided ID
       const createdRoom = await RoomService.createRoom(newRoomId)
-      
-      // Backend returns internal ID + roomId. Always use tracking roomId for the UI URL.
       const finalRoomId = createdRoom?.roomId || newRoomId
       
+      setRoomId(finalRoomId)
+
       toast.success(`Room ${finalRoomId} created!`)
-      setTimeout(() => navigate(`/chat/${finalRoomId}`, { state: { username: name.trim() } }), 600)
+      setConnected(true);
+      setTimeout(() => navigate(`/chat/${finalRoomId}`), 600)
     } catch (error) {
       console.error("Failed to create room:", error)
       
@@ -103,7 +100,7 @@ export default function JoinRoom() {
                         || (typeof error.response?.data === 'string' ? error.response.data : null);
 
       if (backendError) {
-        toast.error(backendError) // Will show "Room with ID ... already exists"
+        toast.error(backendError)
       } else {
         toast.error('Failed to create room. Is your backend running?')
       }
@@ -132,7 +129,6 @@ export default function JoinRoom() {
         }}
       />
 
-      {/* ── Floating particles ── */}
       {PARTICLES.map((p, i) => (
         <motion.div
           key={i}
@@ -152,7 +148,6 @@ export default function JoinRoom() {
         />
       ))}
 
-      {/* ── Main card (3-D tilt) ── */}
       <motion.div
         initial={{ opacity: 0, y: 50, scale: 0.94 }}
         animate={{ opacity: 1, y: 0,  scale: 1 }}
@@ -217,7 +212,6 @@ export default function JoinRoom() {
             </motion.p>
           </div>
 
-          {/* ── Form (staggered children) ── */}
           <motion.div
             variants={containerVariants}
             initial="hidden"
@@ -246,8 +240,8 @@ export default function JoinRoom() {
                 <input
                   id="name-input"
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={currentUser || ''}
+                  onChange={(e) => setCurrentUser(e.target.value)}
                   onFocus={() => setNameFocused(true)}
                   onBlur={() => setNameFocused(false)}
                   onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
@@ -349,7 +343,6 @@ export default function JoinRoom() {
                 />
                 <span className="relative flex items-center justify-center gap-2">
                   {isCreating ? (
-                    /* Spinner while creating */
                     <motion.svg
                       animate={{ rotate: 360 }}
                       transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}

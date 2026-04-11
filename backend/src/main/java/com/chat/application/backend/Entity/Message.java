@@ -14,13 +14,13 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Message {
 
-    private String sender; // The sender of the message
-    private String content; // The content of the message
-    private LocalDateTime timestamp; // The time the message was sent
+    private String sender;
+    private String content;
+    private LocalDateTime timestamp;
 
     public Message(String sender, String content) {
         this.sender = sender;
         this.content = content;
-        this.timestamp = LocalDateTime.now(); // Set the timestamp to the current time when the message is created
+        this.timestamp = LocalDateTime.now();
     }
 }

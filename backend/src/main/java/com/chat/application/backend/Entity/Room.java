@@ -17,9 +17,9 @@ import java.util.List;
 @Document(collection = "rooms")
 public class Room {
     @Id
-    private String id; // MongoDB will automatically generate a unique ID for each document
+    private String id;
 
-    private String roomId; // Unique identifier for the chat room for creater to share
+    private String roomId;
 
-    private List<Message> messages = new ArrayList<>(); // List of messages in the chat room
+    private List<Message> messages = new ArrayList<>();
 }

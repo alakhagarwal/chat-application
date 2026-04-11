@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import {useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import toast from 'react-hot-toast'
 import useChatContext from '../context/ChatContext'
@@ -28,8 +28,24 @@ function getInitial(name) {
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-   Animation Variants
-   ───────────────────────────────────────────── */
+
+const TimeAgo = ({ timestamp }) => {
+  const [ago, setAgo] = useState('');
+  useEffect(() => {
+    const updateTime = () => {
+      if (!timestamp) return;
+      const seconds = Math.floor((new Date() - new Date(timestamp)) / 1000);
+      if (seconds < 60) setAgo('just now');
+      else if (seconds < 3600) setAgo(`${Math.floor(seconds / 60)}m ago`);
+      else if (seconds < 86400) setAgo(`${Math.floor(seconds / 3600)}h ago`);
+      else setAgo(`${Math.floor(seconds / 86400)}d ago`);
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 30000);
+    return () => clearInterval(interval);
+  }, [timestamp]);
+  return <span>{ago}</span>;
+}
 
 /** Sidebar users stagger */
 const sidebarListVariants = {
@@ -70,7 +86,7 @@ const otherBubbleVariants = {
 export default function ChatRoom() {
   // const { roomId }  = useParams()
   const navigate = useNavigate()
-  const { roomId, currentUser, connected } = useChatContext()
+  const { roomId, currentUser, connected, setConnected, setRoomId, setCurrentUser } = useChatContext()
   const [stompClient, setStompClient] = useState(null);
 
   useEffect(() => {
@@ -95,10 +111,12 @@ export default function ChatRoom() {
           setMessages((prev) => [...prev, receivedMessage]);
         });
       });
-      
+
     };
 
-    connectWebSocket();
+    if (connected) {
+      connectWebSocket();
+    }
   }, [roomId])
 
   useEffect(() => {
@@ -132,7 +150,7 @@ export default function ChatRoom() {
   }, [])
 
   const handleSendMessage = async () => {
-    if(stompClient && connected && newMessage.trim()){
+    if (stompClient && connected && newMessage.trim()) {
       const message = {
         sender: currentUser,
         content: newMessage,
@@ -145,6 +163,9 @@ export default function ChatRoom() {
 
   const handleLeaveRoom = () => {
     toast.success('Left the room')
+    setConnected(false)
+    setCurrentUser('')
+    setRoomId('')
     navigate('/')
   }
 
@@ -300,7 +321,7 @@ export default function ChatRoom() {
                       </motion.div>
 
                       <p style={{ fontSize: 10, color: '#475569', marginTop: 4, textAlign: own ? 'right' : 'left', paddingLeft: own ? 0 : 4, paddingRight: own ? 4 : 0 }}>
-                        {formatTime(msg.timestamp)}
+                        {formatTime(msg.timestamp)} • <TimeAgo timestamp={msg.timestamp} />
                       </p>
                     </div>
 
@@ -338,16 +359,7 @@ export default function ChatRoom() {
               transition={{ duration: 0.25 }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 800, margin: '0 auto', borderRadius: 16, padding: '2px 2px 2px 6px' }}
             >
-              {/* Emoji */}
-              <motion.button
-                whileHover={{ scale: 1.15, rotate: 15 }}
-                whileTap={{ scale: 0.9 }}
-                style={{ padding: 10, borderRadius: 10, background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex' }}
-              >
-                <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </motion.button>
+
 
               {/* Text input */}
               <input
@@ -363,16 +375,7 @@ export default function ChatRoom() {
                 style={{ flex: 1, padding: '12px 20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: 'white', fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
               />
 
-              {/* Attach */}
-              <motion.button
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.9 }}
-                style={{ padding: 10, borderRadius: 10, background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex' }}
-              >
-                <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-              </motion.button>
+
 
               {/* Send */}
               <motion.button

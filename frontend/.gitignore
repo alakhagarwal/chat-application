@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Guides
+FRAMER_MOTION_GUIDE.md

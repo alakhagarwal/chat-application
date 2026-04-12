@@ -11,3 +11,6 @@ backend/target
 # IDE
 .vscode
 .idea
+
+# Guides
+WEBSOCKETS_GUIDE.md

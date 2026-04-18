@@ -370,6 +370,12 @@ export default function JoinRoom() {
               </svg>
               Encrypted rooms · No sign-up required
             </motion.p>
+            <motion.p
+              variants={itemVariants}
+              className="text-center text-slate-500/50 text-[10px] pt-2"
+            >
+              ⚡ Backend hosted on free tier — first load may take ~30s
+            </motion.p>
           </motion.div>
         </div>
       </motion.div>
